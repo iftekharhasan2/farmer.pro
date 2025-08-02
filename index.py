@@ -387,10 +387,6 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
-    if "user_id" not in session:
-        flash("Please log in!", "warning")
-        return redirect(url_for("login"))
-
     try:
         proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
         if not proj:
@@ -538,10 +534,6 @@ def save_tasks(pid):
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
-    if "user_id" not in session:
-        flash("Please log in!", "warning")
-        return redirect(url_for("login"))
-
     form = PhotoForm()
     if form.validate_on_submit():
         try:
