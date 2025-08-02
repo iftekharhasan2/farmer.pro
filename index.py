@@ -9,6 +9,7 @@ from bson.objectid import ObjectId
 import bcrypt
 import re
 from dotenv import load_dotenv
+from bson import Binary
 
 load_dotenv()
 
@@ -349,23 +350,6 @@ def dashboard(pid):
         days_left=days_left
     )
 
-@app.route("/projects/<pid>/delete", methods=["POST"])
-def delete_project(pid):
-
-    proj = proj_col.find_one({"_id": ObjectId(pid)})
-    if not proj:
-        flash("Project not found!", "danger")
-        return redirect(url_for("projects"))
-
-    for task_idx, photos in proj.get("task_photo", {}).items():
-        for photo in photos:
-            photo_path = os.path.join(app.config["UPLOAD_FOLDER"], photo)
-            if os.path.exists(photo_path):
-                os.remove(photo_path)
-
-    proj_col.delete_one({"_id": ObjectId(pid)})
-    flash("Project and associated photos deleted!", "success")
-    return redirect(url_for("projects"))
 
 @app.route("/projects/<pid>/weight", methods=["POST"])
 def update_weight(pid):
@@ -387,8 +371,32 @@ def update_weight(pid):
     flash("Weight & feed level updated!", "success")
     return redirect(url_for("dashboard", pid=pid))
 
+
+@app.route("/projects/<pid>/delete", methods=["POST"])
+def delete_project(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+    if not proj:
+        flash("Project not found!", "danger")
+        return redirect(url_for("projects"))
+
+    for task_idx, photos in proj.get("task_photo", {}).items():
+        for photo in photos:
+            photo_path = os.path.join(app.config["UPLOAD_FOLDER"], photo)
+            if os.path.exists(photo_path):
+                os.remove(photo_path)
+
+    proj_col.delete_one({"_id": ObjectId(pid)})
+    flash("Project and associated photos deleted!", "success")
+    return redirect(url_for("projects"))
+
+
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 def save_tasks(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -413,8 +421,10 @@ def save_tasks(pid):
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
-    proj = proj_col.find_one({"_id": ObjectId(pid)})
+    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
         return redirect(url_for("projects"))
@@ -450,6 +460,8 @@ def upload_photos(pid):
     )
     flash(f"Uploaded {len(saved)} photo(s) to phase '{phase}'!", "success")
     return redirect(url_for("dashboard", pid=pid))
+
+
 
 # ---------- shutdown ----------
 def shutdown(signum, frame):
