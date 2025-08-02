@@ -15,18 +15,20 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 # Flask app
 # ------------------------------------------------------------------
-app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)
+app = Flask(_name_)
+app.secret_key = os.getenv("FLASK_SECRET", secrets.token_hex(32))
 
 # session-cookie settings (safe for both http/https and localhost)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False   # set True only if you serve exclusively over HTTPS
-)
-
+    SESSION_COOKIE_SECURE=False,
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7))
+# -------------------------------------------------
 # ------------------------------------------------------------------
 # MongoDB
 # ------------------------------------------------------------------
