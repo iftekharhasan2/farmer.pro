@@ -9,8 +9,6 @@ from bson.objectid import ObjectId
 import bcrypt
 import re
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
-
 
 load_dotenv()
 
@@ -295,9 +293,9 @@ def projects():
     )
 
 @app.route("/projects/new", methods=["GET", "POST"])
-async def new_project():
-    if request.method == "POST":
-        doc = {
+def new_project():
+    if request.method == "POST": 
+         doc = {
             "owner": session["user_id"],
             "name": request.form["name"].strip(),
             "type": request.form["type"],
@@ -306,12 +304,12 @@ async def new_project():
             "feed_level": feed_level(float(request.form["weight"]), request.form["type"]),
             "target": 24 if request.form["type"] == "goat" else 350,
             "check_period": 30,
-            "task_done": {},
+            "task_done": {},     # initialize empty dicts for tasks/photos
             "task_photo": {},
-        }
-        await proj_col.insert_one(doc)  # await here because it's async
-        flash("Project created!", "success")
-        return redirect(url_for("projects"))
+         }
+         proj_col.insert_one(doc)
+         flash("Project created!", "success")
+         return redirect(url_for("projects"))
     return render_template("new_project.html")
 
 @app.route("/projects/<pid>/dashboard")
