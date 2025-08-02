@@ -295,8 +295,6 @@ def projects():
 
 @app.route("/projects/new", methods=["GET", "POST"])
 def new_project():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     if request.method == "POST": 
          doc = {
             "owner": session["user_id"],
@@ -475,4 +473,5 @@ def shutdown(signum, frame):
 if __name__ == "__main__":
     import signal
     signal.signal(signal.SIGINT, shutdown)
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    logging.info("Starting app on http://localhost:5000")
+    app.run(host="0.0.0.0", port=5000, debug=True)
