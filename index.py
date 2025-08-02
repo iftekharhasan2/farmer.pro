@@ -9,7 +9,7 @@ from bson.objectid import ObjectId
 import bcrypt
 import re
 from dotenv import load_dotenv
-from bson import Binary
+from datetime import date
 
 load_dotenv()
 
@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 
 # ------------------------------------------------------------------
 # Flask app
-# ------------------------------------------------------------------
+
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
@@ -28,10 +28,11 @@ app.config.update(
     SESSION_COOKIE_SECURE=False   # set True only if you serve exclusively over HTTPS
 )
 
+
 # ------------------------------------------------------------------
 # MongoDB
 # ------------------------------------------------------------------
-mongo = MongoClient(os.getenv("MONGO_URI"))
+mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
 db        = mongo["mydatabase"]
 users_col = db["users"]
 proj_col  = db["projects"]
@@ -42,7 +43,7 @@ proj_col  = db["projects"]
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024          # 2 MB
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024          # 2 MB
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
 
@@ -231,13 +232,19 @@ def register():
 def admin_dashboard():
     if not session.get("admin"):
         return render_template("login.html")
-
+ 
     projects = list(proj_col.find())
     for p in projects:
         p["days"] = days_since(p["purchase_date"])
         p["schedule"] = build_schedule(p["days"], p["weight"], p["type"])
-    return render_template("admin02.html", zip=zip, projects=projects)
 
+    return render_template(
+    "admin02.html",
+    zip=zip,
+    projects=projects,
+    today=date.today().isoformat()    
+)
+ 
 @app.route("/admin/logout")
 def admin_logout():
     session.pop("admin", None)
@@ -268,8 +275,12 @@ def admin_user_detail(uid):
     for p in projects:
         p["days"] = days_since(p["purchase_date"])
         p["schedule"] = build_schedule(p["days"], p["weight"], p["type"])
-    return render_template("admin_user_detail.html", user=user, projects=projects)
-
+    return render_template(
+    "admin_user_detail.html",
+    user=user,
+    projects=projects,
+    today=datetime.date.today().isoformat()
+)
 @app.route("/logout")
 def logout():
     session.clear()
@@ -295,6 +306,8 @@ def projects():
 
 @app.route("/projects/new", methods=["GET", "POST"])
 def new_project():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
     if request.method == "POST": 
          doc = {
             "owner": session["user_id"],
@@ -315,7 +328,10 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
-    proj = proj_col.find_one({"_id": ObjectId(pid)})
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Not found!", "danger")
         return redirect(url_for("projects"))
@@ -326,7 +342,10 @@ def dashboard(pid):
     days_left = (period - (days % period)) % period
 
     if days % period == 0 and days != 0 and proj.get("last_check") != days:
-        new_level = feed_level(proj["weight"] + (30 if proj["type"] == "cow" else 0), proj["type"])
+        new_level = feed_level(
+            proj["weight"] + (30 if proj["type"] == "cow" else 0),
+            proj["type"]
+        )
         proj_col.update_one(
             {"_id": proj["_id"]},
             {"$set": {"feed_level": new_level, "last_check": days}}
@@ -336,6 +355,12 @@ def dashboard(pid):
 
     schedule = build_schedule(days, proj["weight"], proj["type"])
 
+    # --- date-keyed helpers ---
+    today = datetime.date.today().isoformat()
+    today_done   = proj.get("task_done",  {}).get(today, {})
+    today_photos = proj.get("task_photo", {}).get(today, {})
+
+    # ensure top-level keys exist
     if "task_done" not in proj:
         proj["task_done"] = {}
     if "task_photo" not in proj:
@@ -346,30 +371,12 @@ def dashboard(pid):
         project=proj,
         schedule=schedule,
         days=days,
+        today_done=today_done,
+        today_photos=today_photos,   # <-- new
+        today=today,
         show_weight_input=show_weight,
         days_left=days_left
     )
-
-
-@app.route("/projects/<pid>/weight", methods=["POST"])
-def update_weight(pid):
-    weight = float(request.form["weight"])
-    proj = proj_col.find_one({"_id": ObjectId(pid)})
-    if not proj:
-        flash("Project not found!", "danger")
-        return redirect(url_for("projects"))
-
-    proj_col.update_one(
-        {"_id": ObjectId(pid), "owner": session["user_id"]},
-        {"$set": {"weight": weight}}
-    )
-    new_level = feed_level(weight, proj["type"])
-    proj_col.update_one(
-        {"_id": ObjectId(pid)},
-        {"$set": {"feed_level": new_level}}
-    )
-    flash("Weight & feed level updated!", "success")
-    return redirect(url_for("dashboard", pid=pid))
 
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
@@ -392,7 +399,29 @@ def delete_project(pid):
     flash("Project and associated photos deleted!", "success")
     return redirect(url_for("projects"))
 
+@app.route("/projects/<pid>/weight", methods=["POST"])
+def update_weight(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    weight = float(request.form["weight"])
+    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+    if not proj:
+        flash("Project not found!", "danger")
+        return redirect(url_for("projects"))
 
+    proj_col.update_one(
+        {"_id": ObjectId(pid), "owner": session["user_id"]},
+        {"$set": {"weight": weight}}
+    )
+    new_level = feed_level(weight, proj["type"])
+    proj_col.update_one(
+        {"_id": ObjectId(pid), "owner": session["user_id"]},
+        {"$set": {"feed_level": new_level}}
+    )
+    flash("Weight & feed level updated!", "success")
+    return redirect(url_for("dashboard", pid=pid))
+
+# ---------- routes ----------
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 def save_tasks(pid):
     if "user_id" not in session:
@@ -403,21 +432,24 @@ def save_tasks(pid):
         flash("Project not found!", "danger")
         return redirect(url_for("projects"))
 
-    done_dict = {}
-    schedule = build_schedule(days_since(proj["purchase_date"]),
-                              proj.get("weight", 0), proj["type"])
+    schedule = build_schedule(days_since(proj["purchase_date"]),  proj.get("weight", 0), proj["type"])
 
-    # read radios
+    # build today's key
+    today = datetime.date.today().isoformat()
+    done_dict = {}
     for phase_dict in schedule:
         phase = phase_dict["phase"]
-        for i in range(len(phase_dict["tasks"])):
+        for i, _ in enumerate(phase_dict["tasks"]):
             key = f"{phase}.{i}"
             done_dict[key] = (request.form.get(f"done_{key}") == "yes")
 
-    proj_col.update_one({"_id": proj["_id"]}, {"$set": {"task_done": done_dict}})
+    # store under the date
+    proj_col.update_one(
+        {"_id": proj["_id"]},
+        {"$set": {f"task_done.{today}": done_dict}}
+    )
     flash("Tasks updated!", "success")
     return redirect(url_for("dashboard", pid=pid))
-
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
@@ -434,15 +466,16 @@ def upload_photos(pid):
         flash("Phase not specified.", "warning")
         return redirect(url_for("dashboard", pid=pid))
 
-    files = request.files.getlist("photos")  # get ALL files
+    files = request.files.getlist("photos")
     if not files or all(f.filename == '' for f in files):
         flash("No photos selected.", "warning")
         return redirect(url_for("dashboard", pid=pid))
 
-    # existing list for this phase
-    phase_photos = proj.get("task_photo", {}).get(phase, [])
-    if isinstance(phase_photos, str):
-        phase_photos = [phase_photos]
+    today = datetime.date.today().isoformat()          # ➜ date key
+
+    # grab current list: task_photo[date][phase] = [...]
+    today_photos = proj.get("task_photo", {}).get(today, {})
+    phase_photos = today_photos.get(phase, [])
 
     saved = []
     for file in files:
@@ -454,13 +487,14 @@ def upload_photos(pid):
             flash(f"Invalid file skipped: {file.filename}", "warning")
 
     phase_photos.extend(saved)
+
+    # push back into Mongo
     proj_col.update_one(
         {"_id": proj["_id"]},
-        {"$set": {f"task_photo.{phase}": phase_photos}}
+        {"$set": {f"task_photo.{today}.{phase}": phase_photos}}
     )
-    flash(f"Uploaded {len(saved)} photo(s) to phase '{phase}'!", "success")
+    flash(f"Uploaded {len(saved)} photo(s) to {phase} on {today}!", "success")
     return redirect(url_for("dashboard", pid=pid))
-
 
 
 # ---------- shutdown ----------
