@@ -18,14 +18,15 @@ logging.basicConfig(level=logging.INFO)
 # Flask app
 # ------------------------------------------------------------------
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET", secrets.token_hex(32))
+app.secret_key = secrets.token_hex(32)
 
+# session-cookie settings (safe for both http/https and localhost)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False,
-    PERMANENT_SESSION_LIFETIME=timedelta(days=7)
+    SESSION_COOKIE_SECURE=False   # set True only if you serve exclusively over HTTPS
 )
+
 # ------------------------------------------------------------------
 # MongoDB
 # ------------------------------------------------------------------
@@ -280,8 +281,6 @@ def wait():
 
 @app.route("/projects")
 def projects():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     projs = list(proj_col.find({"owner": session["user_id"]}))
     days_map = {str(p["_id"]): days_since(p["purchase_date"]) for p in projs}
     return render_template(
@@ -293,8 +292,6 @@ def projects():
 
 @app.route("/projects/new", methods=["GET", "POST"])
 def new_project():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     if request.method == "POST": 
          doc = {
             "owner": session["user_id"],
@@ -315,9 +312,6 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Not found!", "danger")
@@ -355,9 +349,6 @@ def dashboard(pid):
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
 def delete_project(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
@@ -375,8 +366,6 @@ def delete_project(pid):
 
 @app.route("/projects/<pid>/weight", methods=["POST"])
 def update_weight(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     weight = float(request.form["weight"])
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -397,9 +386,6 @@ def update_weight(pid):
 
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 def save_tasks(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
@@ -423,9 +409,6 @@ def save_tasks(pid):
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
