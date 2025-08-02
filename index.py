@@ -281,8 +281,6 @@ def wait():
 
 @app.route("/projects")
 def projects():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     projs = list(proj_col.find({"owner": session["user_id"]}))
     days_map = {str(p["_id"]): days_since(p["purchase_date"]) for p in projs}
     return render_template(
