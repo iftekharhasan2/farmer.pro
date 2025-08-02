@@ -31,7 +31,7 @@ app.config.update(
 # ------------------------------------------------------------------
 # MongoDB
 # ------------------------------------------------------------------
-mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+mongo = MongoClient(os.getenv("MONGO_URI"))
 db        = mongo["mydatabase"]
 users_col = db["users"]
 proj_col  = db["projects"]
