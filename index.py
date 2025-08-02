@@ -4,7 +4,7 @@ import secrets
 import logging
 import datetime
 from werkzeug.utils import secure_filename
-from flask import Flask, request, session, redirect, url_for, render_template, flash, abort
+from flask import Flask, request, session, redirect, url_for, render_template, flash
 from flask_wtf import FlaskForm, CSRFProtect
 from wtforms import StringField, PasswordField, SubmitField, FloatField, SelectField, FileField, DateField
 from wtforms.validators import DataRequired, Length, Regexp
@@ -15,20 +15,17 @@ import bcrypt
 import re
 from dotenv import load_dotenv
 from datetime import date, timedelta
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from flask_session import Session
+import uuid
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
+# Configure logging for Vercel
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('app.log')
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
@@ -38,29 +35,32 @@ app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV") == "production",  # Secure cookies in production
-    PERMANENT_SESSION_LIFETIME=timedelta(days=7),  # Sessions last 7 days
+    SESSION_COOKIE_SECURE=os.getenv("VERCEL_ENV") == "production",  # Secure cookies in production
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50 MB max upload size
-    UPLOAD_FOLDER=os.path.join(os.getcwd(), "static", "uploads")
+    UPLOAD_FOLDER="/tmp",  # Vercel only allows writing to /tmp
+    SESSION_TYPE="mongodb",  # Store sessions in MongoDB
+    SESSION_MONGODB=os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
+    SESSION_MONGODB_DB="mydatabase",
+    SESSION_MONGODB_COLLECT="sessions"
 )
 
 # Initialize CSRF protection
 csrf = CSRFProtect(app)
 
-# Initialize rate limiter
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://"
-)
+# Initialize session management
+Session(app)
 
 # Ensure upload folder exists
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 # MongoDB setup
 try:
-    mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+    mongo = MongoClient(
+        os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
+        serverSelectionTimeoutMS=5000,
+        maxPoolSize=10  # Optimize for serverless
+    )
     mongo.server_info()  # Test connection
     db = mongo["mydatabase"]
     users_col = db["users"]
@@ -224,8 +224,8 @@ def build_schedule(day, weight, animal):
 @app.before_request
 def check_session():
     if "user_id" in session:
-        session.permanent = True  # Make session persistent
-        session.modified = True  # Mark session as modified to ensure it saves
+        session.permanent = True
+        session.modified = True
 
 # Routes
 @app.route("/")
@@ -233,7 +233,6 @@ def index():
     return render_template("index.html")
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per minute")  # Prevent brute-force login attempts
 def login():
     form = LoginForm()
     if form.validate_on_submit():
@@ -243,7 +242,7 @@ def login():
 
         if user and bcrypt.checkpw(pwd.encode(), user["password"]):
             session["user_id"] = str(user["_id"])
-            session.permanent = True  # Ensure session persists
+            session.permanent = True
             if user.get("role") == "admin":
                 session["admin"] = True
                 flash("Welcome, Admin!", "success")
@@ -387,6 +386,10 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
+    if "user_id" not in session:
+        flash("Please log in!", "warning")
+        return redirect(url_for("login"))
+
     try:
         proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
         if not proj:
@@ -439,7 +442,7 @@ def dashboard(pid):
         return redirect(url_for("projects"))
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
-@csrf.exempt  # Exempt CSRF for simplicity, but consider adding CSRF token in production
+@csrf.exempt
 def delete_project(pid):
     if "user_id" not in session:
         flash("Please log in!", "warning")
@@ -534,6 +537,10 @@ def save_tasks(pid):
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
+    if "user_id" not in session:
+        flash("Please log in!", "warning")
+        return redirect(url_for("login"))
+
     form = PhotoForm()
     if form.validate_on_submit():
         try:
@@ -551,8 +558,9 @@ def upload_photos(pid):
             saved = []
             for file in files:
                 if file and allowed_file(file.filename):
-                    filename = f"{ObjectId()}_{secure_filename(file.filename)}"
-                    file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+                    filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+                    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                    file.save(file_path)
                     saved.append(filename)
                 else:
                     flash(f"Invalid file skipped: {file.filename}", "warning")
@@ -580,14 +588,11 @@ def server_error(e):
     logger.error(f"500 error: {e}")
     return render_template("500.html"), 500
 
-# Shutdown handler
-def shutdown(signum, frame):
-    logger.info("Shutting down server...")
-    mongo.close()
-    sys.exit(0)
+# Vercel serverless handler
+def handler(event, context):
+    from serverless_wsgi import handle_request
+    return handle_request(app, event, context)
 
 if __name__ == "__main__":
-    import signal
-    signal.signal(signal.SIGINT, shutdown)
     logger.info("Starting development server on http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=os.getenv("FLASK_ENV") != "production")
+    app.run(host="0.0.0.0", port=5000, debug=os.getenv("VERCEL_ENV") != "production")
