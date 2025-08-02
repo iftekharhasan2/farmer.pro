@@ -12,4 +12,5 @@ Werkzeug
 Flask
 python-dotenv
 motor
+flask_wtf
 
