@@ -294,8 +294,6 @@ def projects():
 
 @app.route("/projects/new", methods=["GET", "POST"])
 def new_project():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     if request.method == "POST": 
          doc = {
             "owner": session["user_id"],
@@ -316,9 +314,6 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Not found!", "danger")
@@ -356,9 +351,6 @@ def dashboard(pid):
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
 def delete_project(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
@@ -376,8 +368,6 @@ def delete_project(pid):
 
 @app.route("/projects/<pid>/weight", methods=["POST"])
 def update_weight(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     weight = float(request.form["weight"])
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -398,9 +388,6 @@ def update_weight(pid):
 
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 def save_tasks(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
@@ -424,9 +411,6 @@ def save_tasks(pid):
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
