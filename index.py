@@ -281,6 +281,8 @@ def wait():
 
 @app.route("/projects")
 def projects():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
     projs = list(proj_col.find({"owner": session["user_id"]}))
     days_map = {str(p["_id"]): days_since(p["purchase_date"]) for p in projs}
     return render_template(
@@ -312,7 +314,7 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
-    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+    proj = proj_col.find_one({"_id": ObjectId(pid)})
     if not proj:
         flash("Not found!", "danger")
         return redirect(url_for("projects"))
@@ -349,7 +351,8 @@ def dashboard(pid):
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
 def delete_project(pid):
-    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+
+    proj = proj_col.find_one({"_id": ObjectId(pid)})
     if not proj:
         flash("Project not found!", "danger")
         return redirect(url_for("projects"))
@@ -367,7 +370,7 @@ def delete_project(pid):
 @app.route("/projects/<pid>/weight", methods=["POST"])
 def update_weight(pid):
     weight = float(request.form["weight"])
-    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+    proj = proj_col.find_one({"_id": ObjectId(pid)})
     if not proj:
         flash("Project not found!", "danger")
         return redirect(url_for("projects"))
@@ -378,7 +381,7 @@ def update_weight(pid):
     )
     new_level = feed_level(weight, proj["type"])
     proj_col.update_one(
-        {"_id": ObjectId(pid), "owner": session["user_id"]},
+        {"_id": ObjectId(pid)},
         {"$set": {"feed_level": new_level}}
     )
     flash("Weight & feed level updated!", "success")
@@ -386,6 +389,7 @@ def update_weight(pid):
 
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 def save_tasks(pid):
+
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
         flash("Project not found!", "danger")
@@ -409,7 +413,8 @@ def save_tasks(pid):
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 def upload_photos(pid):
-    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+
+    proj = proj_col.find_one({"_id": ObjectId(pid)})
     if not proj:
         flash("Project not found!", "danger")
         return redirect(url_for("projects"))
