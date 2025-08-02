@@ -50,7 +50,7 @@ csrf = CSRFProtect(app)
 # মঙ্গোডিবি সেটআপ এবং সেশন ম্যানেজমেন্ট
 try:
     mongo = MongoClient(
-        os.getenv("mongodb+srv://project01app01:Adnan26820027@cluster0.h8zwopc.mongodb.net/"),
+        os.getenv("mongodb+srv://ifty:nxzhhhlWutt7PcMh@cluster0.bd9ywas.mongodb.net/mydatabase?retryWrites=true&w=majority&appName=Cluster0"),
         serverSelectionTimeoutMS=10000,  # সংযোগের জন্য ১০ সেকেন্ড টাইমআউট
         maxPoolSize=10  # সার্ভারলেসের জন্য অপ্টিমাইজ
     )
