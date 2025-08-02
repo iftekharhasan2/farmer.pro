@@ -293,9 +293,9 @@ def projects():
     )
 
 @app.route("/projects/new", methods=["GET", "POST"])
-def new_project():
-    if request.method == "POST": 
-         doc = {
+async def new_project():
+    if request.method == "POST":
+        doc = {
             "owner": session["user_id"],
             "name": request.form["name"].strip(),
             "type": request.form["type"],
@@ -304,12 +304,12 @@ def new_project():
             "feed_level": feed_level(float(request.form["weight"]), request.form["type"]),
             "target": 24 if request.form["type"] == "goat" else 350,
             "check_period": 30,
-            "task_done": {},     # initialize empty dicts for tasks/photos
+            "task_done": {},
             "task_photo": {},
-         }
-         proj_col.insert_one(doc)
-         flash("Project created!", "success")
-         return redirect(url_for("projects"))
+        }
+        await proj_col.insert_one(doc)  # await here because it's async
+        flash("Project created!", "success")
+        return redirect(url_for("projects"))
     return render_template("new_project.html")
 
 @app.route("/projects/<pid>/dashboard")
