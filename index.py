@@ -2,8 +2,6 @@ import os
 import secrets
 import logging
 import datetime
-import signal
-import sys
 from werkzeug.utils import secure_filename
 from flask import Flask, request, session, redirect, url_for, render_template, flash
 from pymongo import MongoClient
@@ -11,24 +9,41 @@ from bson.objectid import ObjectId
 import bcrypt
 import re
 from dotenv import load_dotenv
-load_dotenv()  # <- This loads .env variables
 
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
+
+# ------------------------------------------------------------------
+# Flask app
+# ------------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-db = mongo["mydatabase"]
-users_col = db["users"]
-proj_col = db["projects"]
+# session-cookie settings (safe for both http/https and localhost)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False   # set True only if you serve exclusively over HTTPS
+)
 
-# ---------- file upload ----------
+# ------------------------------------------------------------------
+# MongoDB
+# ------------------------------------------------------------------
+mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+db        = mongo["mydatabase"]
+users_col = db["users"]
+proj_col  = db["projects"]
+
+# ------------------------------------------------------------------
+# File-upload constants
+# ------------------------------------------------------------------
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB max per upload
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024          # 2 MB
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
+
 
  
 PHONE_RE = re.compile(r'^\+?[0-9]{11,15}$')
@@ -290,7 +305,7 @@ def new_project():
             "weight": float(request.form["weight"]),
             "feed_level": feed_level(float(request.form["weight"]), request.form["type"]),
             "target": 24 if request.form["type"] == "goat" else 350,
-            "check_period": 30 if request.form["type"] == "cow" else 1,
+            "check_period": 30,
             "task_done": {},     # initialize empty dicts for tasks/photos
             "task_photo": {},
          }
@@ -311,7 +326,7 @@ def dashboard(pid):
 
     days = days_since(proj["purchase_date"])
     period = proj["check_period"]
-    show_weight = (days % period == 0 and days != 0) or proj["type"] == "goat"
+    show_weight = (days % period == 0 and days != 0)
     days_left = (period - (days % period)) % period
 
     if days % period == 0 and days != 0 and proj.get("last_check") != days:
@@ -449,15 +464,15 @@ def upload_photos(pid):
     flash(f"Uploaded {len(saved)} photo(s) to phase '{phase}'!", "success")
     return redirect(url_for("dashboard", pid=pid))
 
-asgi_app = app 
-
-
 # ---------- shutdown ----------
 def shutdown(signum, frame):
     logging.info("Shutting down …")
     sys.exit(0)
 
+ 
+#for check
 if __name__ == "__main__":
+    import signal
     signal.signal(signal.SIGINT, shutdown)
     logging.info("Starting app on http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)     
+    app.run(host="0.0.0.0", port=5000, debug=True)
