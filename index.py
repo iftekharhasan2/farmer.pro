@@ -2,29 +2,55 @@ import os
 import secrets
 import logging
 import datetime
-import signal
-import sys
 from werkzeug.utils import secure_filename
 from flask import Flask, request, session, redirect, url_for, render_template, flash
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import bcrypt
+import re
+from dotenv import load_dotenv
+from bson import Binary
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
+
+# ------------------------------------------------------------------
+# Flask app
+# ------------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-db = mongo["mydatabase"]
-users_col = db["users"]
-proj_col = db["projects"]
+# session-cookie settings (safe for both http/https and localhost)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False   # set True only if you serve exclusively over HTTPS
+)
 
-# ---------- file upload ----------
+# ------------------------------------------------------------------
+# MongoDB
+# ------------------------------------------------------------------
+mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+db        = mongo["mydatabase"]
+users_col = db["users"]
+proj_col  = db["projects"]
+
+# ------------------------------------------------------------------
+# File-upload constants
+# ------------------------------------------------------------------
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB max per upload
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024          # 2 MB
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
+
+
+ 
+PHONE_RE = re.compile(r'^\+?[0-9]{11,15}$')
+
+def valid_phone(p):
+    return PHONE_RE.fullmatch(p) is not None
 
 def allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
@@ -35,19 +61,17 @@ def days_since(d):
         d = datetime.datetime.fromisoformat(d).date()
     elif isinstance(d, datetime.datetime):
         d = d.date()
-    return (datetime.date.today() - d).days
+    return (datetime.date.today() - d).days + 1
 
 def feed_level(weight, animal):
     if animal == "goat":
-        if weight < 15:
-            return 1
-        elif weight < 18:
-            return 2
-        elif weight < 21:
-            return 3
-        elif weight < 23:
-            return 4
-        return 5
+        if weight < 10:
+            return 100
+        elif weight <= 15:
+            return 150
+        elif weight < 20:
+            return 200
+        return 200
     else:  # cow
         if weight < 150:
             return 1
@@ -59,14 +83,12 @@ def feed_level(weight, animal):
 def Grass(weight, animal):
     if animal == "goat":
         if weight < 15:
-            return 1
+            return 2.5
         elif weight < 18:
-            return 2
+            return 2.5
         elif weight < 21:
-            return 3
-        elif weight < 23:
-            return 4
-        return 5
+            return 2.5
+        return 2.5
     else:  # cow
         if weight < 150:
             return 5
@@ -124,8 +146,8 @@ def build_schedule(day, weight, animal):
                 "phase": "morning",
                 "tasks": [
                     {"description": "ছাগলের ঘর পরিষ্কার করুন, চারি পরিষ্কার করুন, ছাগলের পা হাঁটু পর্যন্ত ধুয়ে দিন", "time_range": "সকাল ৬ঃ০০ - ৭ঃ০০"},
-                    {"description": "সবুজ ঘাস খাওয়ান", "time_range": "সকাল ৭ঃ০০ - ৮ঃ০০"},
-                    {"description": "দানাদার খাবার (একটি বাটিতে পরিমাপ করে দিন) + চিটাগুড় মিশ্রিত পানি (৫ গ্রাম / ৫ লিটার)", "time_range": "সকাল ৮ঃ০০ - ৯ঃ০০"},
+                    {"description": f"সবুজ ঘাস খাওয়ান {Grass(weight, animal)} কেজি", "time_range": "সকাল ৭ঃ০০ - ৮ঃ০০"},
+                    {"description": f"দানাদার খাদ্য {feed_level(weight, animal)} গ্রাম(একটি বাটিতে পরিমাপ করে দিন) + চিটাগুড় মিশ্রিত পানি (৫ গ্রাম / ৫ লিটার)", "time_range": "সকাল ৮ঃ০০ - ৯ঃ০০"},
                     {"description": "খড় খাওয়ান (চিটাগুড় মিশ্রিত পানি খড়ের উপর ছিটিয়ে দিন)", "time_range": "সকাল ৯ঃ০০ - ১০ঃ০০"},
                     {"description": "প্রয়োজন অনুযায়ী সবুজ ঘাস প্রদান করুন", "time_range": "সকাল ১০ঃ০০ - ১১ঃ০০"},
                     {"description": "পানি দিয়ে চারি ধুয়ে দিন, ছাগলের ঘর পরিষ্কার করুন", "time_range": "সকাল ১১ঃ০০ - ১২ঃ০০"},
@@ -135,8 +157,8 @@ def build_schedule(day, weight, animal):
                 "phase": "midday",
                 "tasks": [
                     {"description": "চারিতে পরিষ্কার পানি দিন এবং ছাগলকে বিশ্রাম নিতে দিন", "time_range": "দুপুর ১ঃ০০ - ৩ঃ০০"},
-                    {"description": "সবুজ ঘাস খাওয়ান", "time_range": "দুপুর ৩ঃ০০ - ৪ঃ০০"},
-                    {"description": f"দানাদার খাদ্য {feed_level(weight, animal)} কেজি", "time_range": "বিকাল ৪ঃ০০ - ৫ঃ০০"},
+                    {"description": f"সবুজ ঘাস খাওয়ান ({Grass(weight, animal)} কেজি", "time_range": "দুপুর ৩ঃ০০ - ৪ঃ০০"},
+                    {"description": f"দানাদার খাদ্য {feed_level(weight, animal)} গ্রাম", "time_range": "বিকাল ৪ঃ০০ - ৫ঃ০০"},
                     {"description": "খড় খাওয়ান (চিটাগুড় মিশ্রিত পানি খড়ের উপর ছিটিয়ে দিন)", "time_range": "বিকাল ৫ঃ০০ - ৬ঃ০০"},
                     {"description": "প্রয়োজন অনুযায়ী সবুজ ঘাস দিন", "time_range": "বিকাল ৬ঃ০০ - সন্ধ্যা ৬ঃ৪৫"},
                 ]
@@ -162,39 +184,47 @@ def build_schedule(day, weight, animal):
 # ---------- routes ----------
 @app.route("/")
 def index():
-    return redirect(url_for("projects") if "user_id" in session else url_for("login"))
+    return render_template("index.html")
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form["email"].strip().lower()
-        pwd   = request.form["password"]
-        user  = users_col.find_one({"email": email})
+        phone = request.form["phone"].strip()
+        pwd = request.form["password"]
+        user = users_col.find_one({"phone": phone})
 
         if user and bcrypt.checkpw(pwd.encode(), user["password"]):
             session["user_id"] = str(user["_id"])
-            # if this user has admin role → straight to admin dashboard
             if user.get("role") == "admin":
                 session["admin"] = True
                 return redirect(url_for("admin_dashboard"))
             flash("স্বাগতম!", "success")
             return redirect(url_for("projects"))
 
-        flash("ইমেইল অথবা পাসওয়ার্ড ভুল!", "danger")
+        flash("ফোন নম্বর অথবা পাসওয়ার্ড ভুল!", "danger")
     return render_template("login.html")
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         name = request.form["name"].strip()
-        email = request.form["email"].strip().lower()
-        if users_col.find_one({"email": email}):
-            flash("Already registered!", "warning")
+        phone = request.form["phone"].strip()
+
+        if not valid_phone(phone):
+            flash("সঠিক ফোন নম্বর দিন!", "warning")
             return redirect(url_for("register"))
+
+        if users_col.find_one({"phone": phone}):
+            flash("এই ফোন নম্বর আগে ব্যবহার হেছে!", "warning")
+            return redirect(url_for("register"))
+
         pw_hash = bcrypt.hashpw(request.form["password"].encode(), bcrypt.gensalt())
-        users_col.insert_one({"name": name, "email": email, "password": pw_hash})
-        flash("Account created!", "success")
-        return redirect(url_for("login"))
+        user_id = users_col.insert_one({"name": name, "phone": phone, "password": pw_hash}).inserted_id
+        session["user_id"] = str(user_id)
+        flash("অ্যাকাউন্ট তৈরি হেছে!", "success")
+        return redirect(url_for("projects"))
     return render_template("register.html")
+
 
 # ---------- ADMIN ----------
 @app.route("/admin/dashboard", methods=["GET", "POST"])
@@ -246,6 +276,10 @@ def logout():
     flash("Logged out!", "info")
     return redirect(url_for("login"))
 
+@app.route("/wait")
+def wait():
+    return render_template("wait.html")
+
 @app.route("/projects")
 def projects():
     if "user_id" not in session:
@@ -261,8 +295,6 @@ def projects():
 
 @app.route("/projects/new", methods=["GET", "POST"])
 def new_project():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     if request.method == "POST": 
          doc = {
             "owner": session["user_id"],
@@ -272,7 +304,7 @@ def new_project():
             "weight": float(request.form["weight"]),
             "feed_level": feed_level(float(request.form["weight"]), request.form["type"]),
             "target": 24 if request.form["type"] == "goat" else 350,
-            "check_period": 30 if request.form["type"] == "cow" else 1,
+            "check_period": 30,
             "task_done": {},     # initialize empty dicts for tasks/photos
             "task_photo": {},
          }
@@ -283,17 +315,14 @@ def new_project():
 
 @app.route("/projects/<pid>/dashboard")
 def dashboard(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-
-    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
+    proj = proj_col.find_one({"_id": ObjectId(pid)})
     if not proj:
         flash("Not found!", "danger")
         return redirect(url_for("projects"))
 
     days = days_since(proj["purchase_date"])
     period = proj["check_period"]
-    show_weight = (days % period == 0 and days != 0) or proj["type"] == "goat"
+    show_weight = (days % period == 0 and days != 0)
     days_left = (period - (days % period)) % period
 
     if days % period == 0 and days != 0 and proj.get("last_check") != days:
@@ -321,6 +350,28 @@ def dashboard(pid):
         days_left=days_left
     )
 
+
+@app.route("/projects/<pid>/weight", methods=["POST"])
+def update_weight(pid):
+    weight = float(request.form["weight"])
+    proj = proj_col.find_one({"_id": ObjectId(pid)})
+    if not proj:
+        flash("Project not found!", "danger")
+        return redirect(url_for("projects"))
+
+    proj_col.update_one(
+        {"_id": ObjectId(pid), "owner": session["user_id"]},
+        {"$set": {"weight": weight}}
+    )
+    new_level = feed_level(weight, proj["type"])
+    proj_col.update_one(
+        {"_id": ObjectId(pid)},
+        {"$set": {"feed_level": new_level}}
+    )
+    flash("Weight & feed level updated!", "success")
+    return redirect(url_for("dashboard", pid=pid))
+
+
 @app.route("/projects/<pid>/delete", methods=["POST"])
 def delete_project(pid):
     if "user_id" not in session:
@@ -341,27 +392,6 @@ def delete_project(pid):
     flash("Project and associated photos deleted!", "success")
     return redirect(url_for("projects"))
 
-@app.route("/projects/<pid>/weight", methods=["POST"])
-def update_weight(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
-    weight = float(request.form["weight"])
-    proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
-    if not proj:
-        flash("Project not found!", "danger")
-        return redirect(url_for("projects"))
-
-    proj_col.update_one(
-        {"_id": ObjectId(pid), "owner": session["user_id"]},
-        {"$set": {"weight": weight}}
-    )
-    new_level = feed_level(weight, proj["type"])
-    proj_col.update_one(
-        {"_id": ObjectId(pid), "owner": session["user_id"]},
-        {"$set": {"feed_level": new_level}}
-    )
-    flash("Weight & feed level updated!", "success")
-    return redirect(url_for("dashboard", pid=pid))
 
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 def save_tasks(pid):
@@ -404,7 +434,7 @@ def upload_photos(pid):
         flash("Phase not specified.", "warning")
         return redirect(url_for("dashboard", pid=pid))
 
-    files = request.files.getlist("photos")
+    files = request.files.getlist("photos")  # get ALL files
     if not files or all(f.filename == '' for f in files):
         flash("No photos selected.", "warning")
         return redirect(url_for("dashboard", pid=pid))
@@ -431,12 +461,17 @@ def upload_photos(pid):
     flash(f"Uploaded {len(saved)} photo(s) to phase '{phase}'!", "success")
     return redirect(url_for("dashboard", pid=pid))
 
+
+
 # ---------- shutdown ----------
 def shutdown(signum, frame):
     logging.info("Shutting down …")
     sys.exit(0)
 
+ 
+#for check
 if __name__ == "__main__":
+    import signal
     signal.signal(signal.SIGINT, shutdown)
     logging.info("Starting app on http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)     
+    app.run(host="0.0.0.0", port=5000, debug=True)
