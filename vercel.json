@@ -1,18 +1,8 @@
 {
-  "version": 2,
   "builds": [
     {
       "src": "index.py",
-      "use": "@vercel/python",
-      "config": { "maxLambdaSize": "50mb" }
-    },
-    {
-      "src": "static/**",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "templates/**",
-      "use": "@vercel/static"
+      "use": "@vercel/python"
     }
   ],
   "routes": [
@@ -20,10 +10,5 @@
       "src": "/(.*)",
       "dest": "index.py"
     }
-  ],
-  "env": {
-    "MONGO_URI": "mongodb+srv://project01app01:Adnan26820027@cluster0.h8zwopc.mongodb.net",
-    "SECRET_KEY": "your-secure-secret-key",
-    "VERCEL_ENV": "production"
-  }
+  ]
 }
