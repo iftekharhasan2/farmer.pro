@@ -13,4 +13,5 @@ Flask
 python-dotenv
 motor
 flask_wtf
+flask_limiter
 
