@@ -452,4 +452,4 @@ def shutdown(signum, frame):
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, shutdown)
     logging.info("Starting app on http://localhost:5000")
-     
+    app.run(host="0.0.0.0", port=5000, debug=True)  
