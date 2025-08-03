@@ -11,8 +11,7 @@ from bson.objectid import ObjectId
 import bcrypt
 import re
 from dotenv import load_dotenv
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+
 
 
 
@@ -23,11 +22,6 @@ load_dotenv()  # <- This loads .env variables
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["100 per minute"],  # 👈 Global limit (adjust as needed)
-)
 app.secret_key = secrets.token_hex(32)
 
 mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
@@ -288,7 +282,6 @@ def projects():
     )
 
 @app.route("/projects/new", methods=["GET", "POST"])
-@limiter.limit("5 per minute")
 def new_project():
     if request.method == "POST": 
          doc = {
@@ -309,7 +302,6 @@ def new_project():
     return render_template("new_project.html")
 
 @app.route("/projects/<pid>/dashboard")
-@limiter.limit("5 per minute")
 def dashboard(pid):
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
@@ -366,7 +358,6 @@ def delete_project(pid):
     return redirect(url_for("projects"))
 
 @app.route("/projects/<pid>/weight", methods=["POST"])
-@limiter.limit("5 per minute")
 def update_weight(pid):
     weight = float(request.form["weight"])
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
@@ -387,7 +378,6 @@ def update_weight(pid):
     return redirect(url_for("dashboard", pid=pid))
 
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
-@limiter.limit("5 per minute")
 def save_tasks(pid):
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
@@ -412,7 +402,6 @@ def save_tasks(pid):
 
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
-@limiter.limit("5 per minute")
 def upload_photos(pid):
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
