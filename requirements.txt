@@ -15,5 +15,11 @@ motor
 flask_wtf
 flask_limiter
 flask_session
+Flask-Limiter
+pymongo
+bcrypt
+dnspython
+Werkzeug
+
 
 
