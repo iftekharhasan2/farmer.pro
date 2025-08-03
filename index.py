@@ -11,6 +11,16 @@ from bson.objectid import ObjectId
 import bcrypt
 import re
 from dotenv import load_dotenv
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["100 per minute"],  # 👈 Global limit (adjust as needed)
+)
+
+
 load_dotenv()  # <- This loads .env variables
 
 
@@ -27,7 +37,7 @@ proj_col = db["projects"]
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB max per upload
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB max per upload
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
  
@@ -266,8 +276,6 @@ def wait():
 
 @app.route("/projects")
 def projects():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     projs = list(proj_col.find({"owner": session["user_id"]}))
     days_map = {str(p["_id"]): days_since(p["purchase_date"]) for p in projs}
     return render_template(
@@ -278,9 +286,8 @@ def projects():
     )
 
 @app.route("/projects/new", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def new_project():
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     if request.method == "POST": 
          doc = {
             "owner": session["user_id"],
@@ -300,9 +307,8 @@ def new_project():
     return render_template("new_project.html")
 
 @app.route("/projects/<pid>/dashboard")
+@limiter.limit("5 per minute")
 def dashboard(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -341,8 +347,6 @@ def dashboard(pid):
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
 def delete_project(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -360,9 +364,8 @@ def delete_project(pid):
     return redirect(url_for("projects"))
 
 @app.route("/projects/<pid>/weight", methods=["POST"])
+@limiter.limit("5 per minute")
 def update_weight(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
     weight = float(request.form["weight"])
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -382,9 +385,8 @@ def update_weight(pid):
     return redirect(url_for("dashboard", pid=pid))
 
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
+@limiter.limit("5 per minute")
 def save_tasks(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -408,9 +410,8 @@ def save_tasks(pid):
 
 
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
+@limiter.limit("5 per minute")
 def upload_photos(pid):
-    if "user_id" not in session:
-        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
