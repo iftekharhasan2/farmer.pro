@@ -68,18 +68,17 @@ def index():
 @limiter.limit("10 per minute")
 def login():
     if request.method == "POST":
-        email = request.form["email"].strip().lower()
-        pwd = request.form["password"]
-        user = users_col.find_one({"email": email})
-        if user and bcrypt.checkpw(pwd.encode(), user["password"]):
+        email = request.form["email"]
+        password = request.form["password"]
+        user = user_col.find_one({"email": email})
+        if user and bcrypt.checkpw(password.encode("utf-8"), user["password"]):
             session["user_id"] = str(user["_id"])
-            if user.get("role") == "admin":
-                session["admin"] = True
-                return redirect(url_for("admin_dashboard"))
-            flash("স্বাগতম!", "success")
-            return redirect(url_for("projects"))
-        flash("ইমেইল অথবা পাসওয়ার্ড ভুল!", "danger")
+            flash("Login successful!", "success")
+            return redirect(url_for("profile"))
+        flash("Invalid credentials", "danger")
+        return redirect(url_for("login"))
     return render_template("login.html")
+
 
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per minute")
