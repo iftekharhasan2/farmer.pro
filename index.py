@@ -14,33 +14,30 @@ from dotenv import load_dotenv
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["100 per minute"],  # 👈 Global limit (adjust as needed)
-)
-
-
-load_dotenv()  # <- This loads .env variables
-
-
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
+
+load_dotenv()  # Load environment variables
 
 mongo = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
 db = mongo["mydatabase"]
 users_col = db["users"]
 proj_col = db["projects"]
 
-# ---------- file upload ----------
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["100 per minute"],  # global rate limit, adjust as needed
+)
+
+# File upload config
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB max per upload
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB max upload
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif"}
 
- 
 PHONE_RE = re.compile(r'^\+?[0-9]{11,15}$')
 
 def valid_phone(p):
@@ -49,7 +46,7 @@ def valid_phone(p):
 def allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
 
-# ---------- helpers ----------
+# Helpers
 def days_since(d):
     if isinstance(d, str):
         d = datetime.datetime.fromisoformat(d).date()
@@ -72,16 +69,9 @@ def feed_level(weight, animal):
         elif weight < 280:
             return 2
         return 3
-    
 
 def Grass(weight, animal):
     if animal == "goat":
-        if weight < 15:
-            return 2.5
-        elif weight < 18:
-            return 2.5
-        elif weight < 21:
-            return 2.5
         return 2.5
     else:  # cow
         if weight < 150:
@@ -93,8 +83,6 @@ def Grass(weight, animal):
         elif weight < 500:
             return 17.5
         return 17.5
-        
-    
 
 def build_schedule(day, weight, animal):
     if animal == "cow":
@@ -133,7 +121,6 @@ def build_schedule(day, weight, animal):
                 ]
             }
         ]
-
     elif animal == "goat":
         return [
             {
@@ -164,7 +151,6 @@ def build_schedule(day, weight, animal):
                 ]
             }
         ]
-
     else:
         return [
             {
@@ -175,7 +161,8 @@ def build_schedule(day, weight, animal):
             }
         ]
 
-# ---------- routes ----------
+# Routes
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -189,9 +176,6 @@ def login():
 
         if user and bcrypt.checkpw(pwd.encode(), user["password"]):
             session["user_id"] = str(user["_id"])
-            if user.get("role") == "admin":
-                session["admin"] = True
-                return redirect(url_for("admin_dashboard"))
             flash("স্বাগতম!", "success")
             return redirect(url_for("projects"))
 
@@ -219,12 +203,10 @@ def register():
         return redirect(url_for("projects"))
     return render_template("register.html")
 
-
-# ---------- ADMIN ----------
 @app.route("/admin/dashboard", methods=["GET", "POST"])
 def admin_dashboard():
-    if not session.get("admin"):
-        return render_template("login.html")
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     projects = list(proj_col.find())
     for p in projects:
@@ -232,16 +214,9 @@ def admin_dashboard():
         p["schedule"] = build_schedule(p["days"], p["weight"], p["type"])
     return render_template("admin02.html", zip=zip, projects=projects)
 
-@app.route("/admin/logout")
-def admin_logout():
-    session.pop("admin", None)
-    flash("Admin logged out.", "info")
-    return redirect(url_for("login"))
-
 @app.route("/admin/users")
 def admin_users():
-    """Admin: list every user with drill-down to projects."""
-    if not session.get("admin"):
+    if "user_id" not in session:
         return redirect(url_for("login"))
 
     users = list(users_col.find({}, {"password": 0}))
@@ -249,8 +224,7 @@ def admin_users():
 
 @app.route("/admin/user/<uid>")
 def admin_user_detail(uid):
-    """Admin: see all projects & tasks for a given user."""
-    if not session.get("admin"):
+    if "user_id" not in session:
         return redirect(url_for("login"))
 
     user = users_col.find_one({"_id": ObjectId(uid)})
@@ -276,20 +250,26 @@ def wait():
 
 @app.route("/projects")
 def projects():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
     projs = list(proj_col.find({"owner": session["user_id"]}))
     days_map = {str(p["_id"]): days_since(p["purchase_date"]) for p in projs}
     return render_template(
         "projects.html",
         projects=projs,
         days=days_map,
-        str=str        # <-- expose Python str to Jinja
+        str=str  # expose Python str to Jinja
     )
 
 @app.route("/projects/new", methods=["GET", "POST"])
 @limiter.limit("5 per minute")
 def new_project():
-    if request.method == "POST": 
-         doc = {
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        doc = {
             "owner": session["user_id"],
             "name": request.form["name"].strip(),
             "type": request.form["type"],
@@ -298,17 +278,19 @@ def new_project():
             "feed_level": feed_level(float(request.form["weight"]), request.form["type"]),
             "target": 24 if request.form["type"] == "goat" else 350,
             "check_period": 30 if request.form["type"] == "cow" else 1,
-            "task_done": {},     # initialize empty dicts for tasks/photos
+            "task_done": {},
             "task_photo": {},
-         }
-         proj_col.insert_one(doc)
-         flash("Project created!", "success")
-         return redirect(url_for("projects"))
+        }
+        proj_col.insert_one(doc)
+        flash("Project created!", "success")
+        return redirect(url_for("projects"))
     return render_template("new_project.html")
 
 @app.route("/projects/<pid>/dashboard")
 @limiter.limit("5 per minute")
 def dashboard(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -347,6 +329,8 @@ def dashboard(pid):
 
 @app.route("/projects/<pid>/delete", methods=["POST"])
 def delete_project(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -366,6 +350,9 @@ def delete_project(pid):
 @app.route("/projects/<pid>/weight", methods=["POST"])
 @limiter.limit("5 per minute")
 def update_weight(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
     weight = float(request.form["weight"])
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -387,6 +374,8 @@ def update_weight(pid):
 @app.route("/projects/<pid>/tasks/save", methods=["POST"])
 @limiter.limit("5 per minute")
 def save_tasks(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -394,10 +383,8 @@ def save_tasks(pid):
         return redirect(url_for("projects"))
 
     done_dict = {}
-    schedule = build_schedule(days_since(proj["purchase_date"]),
-                              proj.get("weight", 0), proj["type"])
+    schedule = build_schedule(days_since(proj["purchase_date"]), proj.get("weight", 0), proj["type"])
 
-    # read radios
     for phase_dict in schedule:
         phase = phase_dict["phase"]
         for i in range(len(phase_dict["tasks"])):
@@ -408,10 +395,11 @@ def save_tasks(pid):
     flash("Tasks updated!", "success")
     return redirect(url_for("dashboard", pid=pid))
 
-
 @app.route("/projects/<pid>/photos/upload", methods=["POST"])
 @limiter.limit("5 per minute")
 def upload_photos(pid):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     proj = proj_col.find_one({"_id": ObjectId(pid), "owner": session["user_id"]})
     if not proj:
@@ -423,42 +411,27 @@ def upload_photos(pid):
         flash("Phase not specified.", "warning")
         return redirect(url_for("dashboard", pid=pid))
 
-    files = request.files.getlist("photos")  # get ALL files
+    files = request.files.getlist("photos")
     if not files or all(f.filename == '' for f in files):
         flash("No photos selected.", "warning")
         return redirect(url_for("dashboard", pid=pid))
 
-    # existing list for this phase
     phase_photos = proj.get("task_photo", {}).get(phase, [])
-    if isinstance(phase_photos, str):
-        phase_photos = [phase_photos]
-
-    saved = []
     for file in files:
         if file and allowed(file.filename):
-            filename = f"{ObjectId()}_{secure_filename(file.filename)}"
-            file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
-            saved.append(filename)
+            filename = secure_filename(file.filename)
+            filename = f"{pid}_{phase}_{secrets.token_hex(6)}_{filename}"
+            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(filepath)
+            phase_photos.append(filename)
         else:
-            flash(f"Invalid file skipped: {file.filename}", "warning")
-
-    phase_photos.extend(saved)
+            flash("One or more files are not valid image types.", "warning")
     proj_col.update_one(
         {"_id": proj["_id"]},
         {"$set": {f"task_photo.{phase}": phase_photos}}
     )
-    flash(f"Uploaded {len(saved)} photo(s) to phase '{phase}'!", "success")
+    flash("Photos uploaded!", "success")
     return redirect(url_for("dashboard", pid=pid))
 
-asgi_app = app 
-
-
-# ---------- shutdown ----------
-def shutdown(signum, frame):
-    logging.info("Shutting down …")
-    sys.exit(0)
-
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, shutdown)
-    logging.info("Starting app on http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)     
+    app.run(debug=True)
