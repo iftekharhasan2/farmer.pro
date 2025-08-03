@@ -432,8 +432,15 @@ def upload_photos(pid):
     )
     flash("Photos uploaded!", "success")
     return redirect(url_for("dashboard", pid=pid))
-
 asgi_app = app 
 
+
+# ---------- shutdown ----------
+def shutdown(signum, frame):
+    logging.info("Shutting down …")
+    sys.exit(0)
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    signal.signal(signal.SIGINT, shutdown)
+    logging.info("Starting app on http://localhost:5000")
+    app.run(host="0.0.0.0", port=5000, debug=True)     
