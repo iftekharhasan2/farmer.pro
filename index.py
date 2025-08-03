@@ -424,7 +424,8 @@ def upload_photos(pid):
     )
     flash(f"Uploaded {len(saved)} photo(s) to phase '{phase}'!", "success")
     return redirect(url_for("dashboard", pid=pid))
-
+# Vercel expects this handler to run your app
+handler = app
 # ---------- shutdown ----------
 def shutdown(signum, frame):
     logging.info("Shutting down …")
