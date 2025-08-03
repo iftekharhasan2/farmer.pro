@@ -433,5 +433,7 @@ def upload_photos(pid):
     flash("Photos uploaded!", "success")
     return redirect(url_for("dashboard", pid=pid))
 
+asgi_app = app 
+
 if __name__ == "__main__":
     app.run(debug=True)
